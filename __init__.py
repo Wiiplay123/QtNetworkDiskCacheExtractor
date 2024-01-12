@@ -96,8 +96,6 @@ class CacheExtractor():
 
     def printDebug(self):
         print(f"Cache version: {self.cacheVersion}")
-        #if self.cacheVersion > 7:
-            #print("Qt version: {} ({})".format(sanitizedTableIndex(self.qtVersion,janusEnums.QT_VERSIONS),self.qtVersion))
         print(f"URL: {self.metadata.url()}")
         print(f"Compressed: {self.compressed}")
         #print("Save to Disk: {}".format(self.metadata.saveToDisk()))
@@ -105,23 +103,25 @@ class CacheExtractor():
         print(f'Last modified: {self.metadata.lastModified().toString() or "None"}')
     def saveCache(self):
         if self.magicNumber == CACHE_MAGIC:
-            cacheFolderPath = os.path.join(args["outputDirectory"],
+            cacheFolderPath = os.path.abspath(os.path.join(args["outputDirectory"],
                                            self.metadata.url().scheme(),
-                                           self.metadata.url().host())
-            cacheFilePath = os.path.join(args["outputDirectory"],
+                                           self.metadata.url().host()))
+            cacheFilePath = os.path.abspath(os.path.join(args["outputDirectory"],
                                          self.metadata.url().scheme(),
-                                         self.metadata.url().host() + urllib.parse.quote(self.metadata.url().path()))
-            cacheDir = QDir(cacheFilePath)
-            if cacheFilePath.endswith("/") or self.metadata.url().path() == "":
-                cacheDir.mkpath(".")
-                cacheFilePath = os.path.join(cacheFilePath,"index.html")
+                                         self.metadata.url().host() + urllib.parse.quote(self.metadata.url().path())))
+            if cacheFilePath.startswith(cacheFolderPath):
+                cacheDir = QDir(cacheFilePath)
+                if self.metadata.url().path() == "" or cacheFilePath.endswith("/") or cacheFilePath.endswith("\\") or cacheFilePath == cacheFolderPath:
+                    cacheDir.mkpath(".")
+                    cacheFilePath = os.path.join(cacheFilePath,"index.html")
+                else:
+                    cacheDir.mkpath("..")
+                cacheFile = QFile(QDir.toNativeSeparators(cacheFilePath))
+                cacheFile.open(QIODevice.WriteOnly)
+                cacheFile.write(self.data)
+                cacheFile.close()
             else:
-                cacheDir.mkpath("..")
-            #print(f"Cache File Path: {cacheFilePath}")
-            cacheFile = QFile(QDir.toNativeSeparators(cacheFilePath))
-            cacheFile.open(QIODevice.WriteOnly)
-            cacheFile.write(self.data)
-            cacheFile.close()
+                messageBox("Cache file {self.path} path {cacheFilePath} outside folder path {cacheFolderPath}")
         else:
             print("Attempted to save invalid cache file.")
         
