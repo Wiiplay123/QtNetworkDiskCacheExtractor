@@ -106,8 +106,10 @@ class CacheExtractor():
     def saveCache(self):
         if self.magicNumber == CACHE_MAGIC:
             cacheFolderPath = os.path.join(args["outputDirectory"],
-                                         self.metadata.url().host())
+                                           self.metadata.url().scheme(),
+                                           self.metadata.url().host())
             cacheFilePath = os.path.join(args["outputDirectory"],
+                                         self.metadata.url().scheme(),
                                          self.metadata.url().host() + urllib.parse.quote(self.metadata.url().path()))
             cacheDir = QDir(cacheFilePath)
             if cacheFilePath.endswith("/") or self.metadata.url().path() == "":
