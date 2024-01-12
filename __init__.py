@@ -1,0 +1,167 @@
+import os
+import sys
+import argparse
+import urllib
+
+from PySide6.QtCore import *
+from PySide6.QtNetwork import QNetworkCacheMetaData
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtGui import *
+from PySide6.QtUiTools import QUiLoader
+
+
+args = {"cacheDirectory": "", "outputDirectory": ""}
+
+CACHE_MAGIC = 0xE8
+
+def messageBox(text,title):
+    msgBox = QMessageBox()
+    msgBox.setText(text)
+    msgBox.setWindowTitle(title)
+    msgBox.exec()
+
+def updateProgress(percent):
+    window.progressBar.setValue(percent)
+
+def runExtractor(cacheList):
+    window.extractButton.setText("Stop")
+    processed = 0
+    window.progressBar.setValue(0)
+    QApplication.processEvents()
+    for i in cacheList:
+        if window.extractButton.text() == "Extract":
+            break
+        extractor = CacheExtractor(i)
+        if extractor.extractCache():
+            extractor.saveCache()
+        processed += 1
+        updateProgress(processed/len(cacheList)*100)
+        QApplication.processEvents()
+    window.extractButton.setText("Extract")
+            
+
+class InvalidCacheMagicNumberException(Exception):
+    "Raised when the cache file is invalid."
+
+def resetOutputFolderToDefault():
+    outputDirectory = os.path.abspath(os.path.join(args["cacheDirectory"],"../cacheOutput/"))
+    window.outputLineEdit.setText(outputDirectory)
+    args["outputDirectory"] = outputDirectory
+
+def setCacheFolderInteractive():
+    dialog = QFileDialog()
+    cacheDirectory = os.path.abspath(str(dialog.getExistingDirectory(caption="Select Cache Directory")))
+    window.cacheLineEdit.setText(cacheDirectory)
+    args["cacheDirectory"] = cacheDirectory
+    resetOutputFolderToDefault()
+
+def setOutputFolderInteractive():
+    dialog = QFileDialog()
+    outputDirectory = os.path.abspath(os.path.join(dialog.getExistingDirectory(caption="Select Output Directory")))
+    window.outputLineEdit.setText(outputDirectory)
+    args["outputDirectory"] = outputDirectory
+    
+def createParser():
+    parser = argparse.ArgumentParser(description="A program to extract files from a JanusVR cache.")
+    parser.add_argument("directory",dest="cacheDirectory",help="JanusVR cache directory")
+    parser.add_argument("-o","--output-dir",dest="outputDirectory",help="Output directory for extracted files")
+    return parser.parse_args(sys.argv)
+
+def getCacheList():
+    args["cacheDirectory"] = window.cacheLineEdit.text()
+    args["outputDirectory"] = window.outputLineEdit.text()
+    cacheFileList = []
+    cacheDirList = os.walk(args["cacheDirectory"])
+    for (root,dirs,files) in cacheDirList:
+        for file in files:
+            if file.endswith(".d"):
+                cacheFileList.append(os.path.join(root,file))
+    if len(cacheFileList) == 0:
+        messageBox("Cache folder does not contain cache files. (*.d)","Warning")
+    return cacheFileList
+
+def sanitizedTableIndex(index,table):
+    return table[min(index,len(table)-1)]
+
+class CacheExtractor():
+    def __init__(self,path):
+        self.path = QDir.toNativeSeparators(path)
+        self.url = ""
+        self.metadata = QNetworkCacheMetaData()
+        self.cacheVersion = 0
+        self.qtVersion = 0
+        self.magicNumber = 0
+        self.data = QByteArray()
+        self.compressed = False
+
+    def printDebug(self):
+        print(f"Cache version: {self.cacheVersion}")
+        #if self.cacheVersion > 7:
+            #print("Qt version: {} ({})".format(sanitizedTableIndex(self.qtVersion,janusEnums.QT_VERSIONS),self.qtVersion))
+        print(f"URL: {self.metadata.url()}")
+        print(f"Compressed: {self.compressed}")
+        #print("Save to Disk: {}".format(self.metadata.saveToDisk()))
+        print(f'Expiration date: {self.metadata.expirationDate().toString() or "None"}')
+        print(f'Last modified: {self.metadata.lastModified().toString() or "None"}')
+    def saveCache(self):
+        if self.magicNumber == CACHE_MAGIC:
+            cacheFolderPath = os.path.join(args["outputDirectory"],
+                                         self.metadata.url().host())
+            cacheFilePath = os.path.join(args["outputDirectory"],
+                                         self.metadata.url().host() + urllib.parse.quote(self.metadata.url().path()))
+            cacheDir = QDir(cacheFilePath)
+            if cacheFilePath.endswith("/") or self.metadata.url().path() == "":
+                cacheDir.mkpath(".")
+                cacheFilePath = os.path.join(cacheFilePath,"index.html")
+            else:
+                cacheDir.mkpath("..")
+            #print(f"Cache File Path: {cacheFilePath}")
+            cacheFile = QFile(QDir.toNativeSeparators(cacheFilePath))
+            cacheFile.open(QIODevice.WriteOnly)
+            cacheFile.write(self.data)
+            cacheFile.close()
+        else:
+            print("Attempted to save invalid cache file.")
+        
+    def extractCache(self):
+        cacheFile = QFile(self.path)
+        success = cacheFile.open(QIODevice.ReadOnly)
+        dataStream = QDataStream(cacheFile)
+        self.magicNumber = dataStream.readInt32()
+        if self.magicNumber != CACHE_MAGIC:
+            print(f"{self.path} is not a valid cache file.")
+            return False
+        self.cacheVersion = dataStream.readInt32()
+        if self.cacheVersion > 7:
+            self.qtVersion = dataStream.readInt32()
+        dataStream.setVersion(self.qtVersion or 13)
+        dataStream >> self.metadata 
+        self.compressed = dataStream.readBool()
+        dataBA = QByteArray()
+        if self.compressed:
+            dataStream >> dataBA
+            self.data = qUncompress(dataBA)
+        else:
+            self.data = cacheFile.readAll()
+        cacheFile.close()
+        #self.printDebug()
+        return True
+
+def extractEvent():
+    if window.extractButton.text() == "Stop":
+        window.extractButton.setText("Extract")
+    else:
+        cacheList = getCacheList()
+        runExtractor(cacheList)
+
+loader = QUiLoader()
+app = QApplication(sys.argv)
+window = loader.load("CacheSelector.ui", None)
+window.show()
+window.cacheButton.clicked.connect(setCacheFolderInteractive)
+window.outputButton.clicked.connect(setOutputFolderInteractive)
+window.extractButton.clicked.connect(extractEvent)
+app.exec()
+
+
+#sys.exit(app.exec())
