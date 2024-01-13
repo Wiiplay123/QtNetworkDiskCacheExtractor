@@ -83,6 +83,13 @@ def getCacheList():
 def sanitizedTableIndex(index,table):
     return table[min(index,len(table)-1)]
 
+def locationIsDir(extractor):
+    for i in extractor.metadata.rawHeaders():
+        if str(i[0]) == b'Location':
+            print("Location: " + str(i[1]))
+            return str(i[1]).endsWith("/") or str(i[1]).endsWith("\\")
+    return False
+
 class CacheExtractor():
     def __init__(self,path):
         self.path = QDir.toNativeSeparators(path)
@@ -103,21 +110,27 @@ class CacheExtractor():
         print(f'Last modified: {self.metadata.lastModified().toString() or "None"}')
     def saveCache(self):
         if self.magicNumber == CACHE_MAGIC:
+            endPath = self.metadata.url().path()
             cacheFolderPath = os.path.abspath(os.path.join(args["outputDirectory"],
                                            self.metadata.url().scheme(),
                                            self.metadata.url().host()))
-            cacheFilePath = os.path.abspath(os.path.join(args["outputDirectory"],
-                                         self.metadata.url().scheme(),
-                                         self.metadata.url().host() + urllib.parse.quote(self.metadata.url().path())))
+            cacheFilePath = os.path.abspath(cacheFolderPath + urllib.parse.quote(endPath))
             if cacheFilePath.startswith(cacheFolderPath):
                 cacheDir = QDir(cacheFilePath)
-                if self.metadata.url().path() == "" or cacheFilePath.endswith("/") or cacheFilePath.endswith("\\") or cacheFilePath == cacheFolderPath:
+                if endPath == "" or locationIsDir(self) or endPath.endswith("/") or endPath.endswith("\\") or cacheFilePath == cacheFolderPath or "." not in self.metadata.url().fileName():
                     cacheDir.mkpath(".")
                     cacheFilePath = os.path.join(cacheFilePath,"index.html")
                 else:
-                    cacheDir.mkpath("..")
+                    cacheDir = QDir(QDir.cleanPath(cacheFilePath + "/.."))
+                    cacheDir.mkpath(".")
                 cacheFile = QFile(QDir.toNativeSeparators(cacheFilePath))
-                cacheFile.open(QIODevice.WriteOnly)
+                success = cacheFile.open(QIODevice.WriteOnly)
+                if not success:
+                    print(self.path)
+                    print(cacheFolderPath)
+                    print(cacheFilePath)
+                    print(self.metadata.url().path())
+                    #print(self.metadata.rawHeaders())
                 cacheFile.write(self.data)
                 cacheFile.close()
             else:
