@@ -100,6 +100,7 @@ class CacheExtractor():
         self.magicNumber = 0
         self.data = QByteArray()
         self.compressed = False
+        self.fileModificationTime = QDateTime()
 
     def printDebug(self):
         print(f"Cache version: {self.cacheVersion}")
@@ -131,6 +132,8 @@ class CacheExtractor():
                     print(cacheFilePath)
                     print(self.metadata.url().path())
                     #print(self.metadata.rawHeaders())
+                cacheFile.setFileTime(self.fileModificationTime,QFileDevice.FileModificationTime)
+                cacheFile.setFileTime(self.fileBirthTime,QFileDevice.FileBirthTime)
                 cacheFile.write(self.data)
                 cacheFile.close()
             else:
@@ -142,6 +145,8 @@ class CacheExtractor():
         cacheFile = QFile(self.path)
         success = cacheFile.open(QIODevice.ReadOnly)
         dataStream = QDataStream(cacheFile)
+        self.fileModificationTime = cacheFile.fileTime(QFileDevice.FileModificationTime)
+        self.fileBirthTime = cacheFile.fileTime(QFileDevice.FileBirthTime)
         self.magicNumber = dataStream.readInt32()
         if self.magicNumber != CACHE_MAGIC:
             print(f"{self.path} is not a valid cache file.")
@@ -150,7 +155,9 @@ class CacheExtractor():
         if self.cacheVersion > 7:
             self.qtVersion = dataStream.readInt32()
         dataStream.setVersion(self.qtVersion or 13)
-        dataStream >> self.metadata 
+        dataStream >> self.metadata
+        if self.metadata.lastModified().isValid():
+            self.fileModificationTime = self.metadata.lastModified()
         self.compressed = dataStream.readBool()
         dataBA = QByteArray()
         if self.compressed:
@@ -177,6 +184,3 @@ window.cacheButton.clicked.connect(setCacheFolderInteractive)
 window.outputButton.clicked.connect(setOutputFolderInteractive)
 window.extractButton.clicked.connect(extractEvent)
 app.exec()
-
-
-#sys.exit(app.exec())
